@@ -1,0 +1,68 @@
+version: '3.3'
+
+services:
+
+  reverse-proxy:
+    image: traefik
+    network_mode: "host"
+    command: --docker # Tells Træfik to listen to docker
+    ports:
+      - "80:80"     # The HTTP port
+      - "443:443"   # The HTTPS port
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # So that Traefik can listen to the Docker events
+      - ./data/traefik/acme.json:/etc/acme.json
+      - ./data/traefik/traefik.toml:/traefik.toml
+    restart: "always"
+  
+  peertube:
+    image: chocobozzz/peertube:production-stretch
+    env_file:
+      - .env
+    labels:
+      traefik.enable: "true"
+      traefik.frontend.rule: "Host:${PEERTUBE_WEBSERVER_HOSTNAME}"
+      traefik.port: "9000"  
+    volumes:
+      - ./data/peertube/data:/data
+      - ./data/peertube/config:/config
+    depends_on:
+      - postgres
+      - redis
+      - postfix
+    restart: "always"
+  
+  postgres:
+    image: postgres:10-alpine
+    environment:
+      POSTGRES_USER: ${PEERTUBE_DB_USERNAME}
+      POSTGRES_PASSWORD: ${PEERTUBE_DB_PASSWORD}
+      POSTGRES_DB: peertube
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+    restart: "always"
+    labels:
+      traefik.enable: "false"
+  
+  redis:
+    image: redis:4-alpine
+    volumes:
+      - ./data/redis:/data
+    restart: "always"
+    labels:
+      traefik.enable: "false"
+  
+  postfix:
+    image: mwader/postfix-relay
+    environment:
+      - POSTFIX_myhostname=${PEERTUBE_WEBSERVER_HOSTNAME}
+    labels:
+      traefik.enable: "false"
+    restart: "always"
+  
+networks:
+  default:
+    ipam:
+      driver: default
+      config:
+      - subnet: 172.18.0.0/16      
